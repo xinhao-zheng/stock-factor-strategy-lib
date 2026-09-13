@@ -1,0 +1,2 @@
+# One line-ending convention on every platform: LF in the repository, LF on checkout.
+* text=auto eol=lf
