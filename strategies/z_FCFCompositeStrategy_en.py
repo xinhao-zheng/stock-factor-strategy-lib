@@ -7,38 +7,30 @@ Copyright: (c) 2026 Xinhao Zheng. Licensed under the MIT License.
 ---------------------------------------------------
 """
 import pandas as pd
-from core.model.strategy_config import StrategyConfig
-import numpy as np
+
 from core.market_essentials import factor_neutralization
+from core.model.strategy_config import StrategyConfig
 
 STG_INTRO = {
-    'Strategy Livestream': [],
-    'Forum Posts': [],
-    'Related Fleets': [],
     'Strategy Description': """
-    A multi-factor enhanced version based on the Cash Flow Stock Selection Strategy.
-    It retains all features of the original FCFFEV + Primary Industry + Industry Quota, adding support for rank-weighted auxiliary factors.
+    Multi-factor extension of the Cash Flow Stock Selection Strategy: it keeps every behavior of FCFFEV + 一级行业
+    + industry quota and adds rank-weighted auxiliary factors.
+    With only FCFFEV and 一级行业 in factor_list it behaves as the official 现金流选股策略; the quota rules are the
+    same, the one difference being that the intra-industry rank uses the composite rather than FCFFEV itself.
 
-    In factor_list:
-        - FCFFEV and Primary Industry: Mandatory, functioning exactly as in the original version.
-        - Other factors: Auxiliary ranking factors, where args represents weight (1 = equal weight to FCFFEV, 0.5 = half weight).
-        - Composite Factor = FCFFEV Rank * 1 + Σ(Auxiliary Factor Rank * Weight), smaller rank = better.
+    factor_list rules:
+        - FCFFEV and 一级行业 are mandatory;
+        - args of 一级行业 controls industry neutralization of the core factor: 'original' off, 'neutralized' on;
+        - a list or tuple as the args of FCFFEV enables the industry quota: industries are ranked by mean FCFFEV
+          within each, the i-th industry keeps the top quota[i] stocks by intra-industry composite rank, and
+          select_num is set to the quota sum; any other args disables it;
+        - every other factor is an auxiliary ranking factor whose args is its weight (1 equal to FCFFEV, 0.5 half).
+    Composite = FCFFEV Rank + Σ(Auxiliary Rank × Weight), smaller is better; each rank follows its own ascending flag.
 
-    The Industry Quota rules are identical to the original version, with the only difference being that intra-industry ranking uses the Composite Factor instead of pure FCFFEV.
-    When factor_list contains only FCFFEV and Primary Industry, the behavior is identical to the original Cash Flow Stock Selection Strategy.
-
-    The weight parameter for [FCFFEV] defines the industry over-weighting rule (Quota), which can be a list or tuple of custom length, for example:
-        Sort industry average values to get Industry Average Rank, then sort stock factor values within industries to get Intra-Industry Rank,
-        [1,1,1,1,1]: Select 1 stock from each of the top 5 industries
-        [2,2,2]: Select 2 stocks from each of the top 3 industries
-        [3,2,1]: Select 3 stocks from the 1st industry, 2 from the 2nd, and 1 from the 3rd.
-    If the weight parameter for [FCFFEV] is not a list or tuple, the industry over-weighting function is disabled.
-
-    The weight parameter for [Primary Industry] determines whether to apply industry neutralization to the core factor, options:
-        original: Do not apply industry neutralization
-        neutralized: Apply industry neutralization
+    Use Case-1: pure FCFFEV, weekly; Use Case-2: FCFFEV industry quota [3, 2, 1] with z_MomentumVolatility_en and
+    z_TrendPurity_en, 3-day holding, intraday 09:50 rebalance (requires minute-level close data), 6 stocks in total.
     """,
-    'Use Case-1 (Base: Pure FCFFEV Selection)':
+    'Use Case-1':
         {
             'name': 'z_FCFCompositeStrategy_en',
             'hold_period': 'W',
@@ -53,12 +45,12 @@ STG_INTRO = {
                             ('一级行业过滤', ['银行', '非银金融', '房地产'], 'val:==0', False),
                             ],
         },
-    'Use Case-2 (Multi-factor + Industry Quota)':
+    'Use Case-2':
         {
             'name': 'z_FCFCompositeStrategy_en',
             'hold_period': '3D',
             'offset_list': [0, 1, 2],
-            'select_num': 5,
+            'select_num': 6,
             'cap_weight': 1,
             'rebalance_time': '0950-0950',
             'factor_list': [('FCFFEV', False, 'ttm', [3, 2, 1]),
@@ -75,86 +67,54 @@ STG_INTRO = {
 
 def calc_select_factor(df, strategy: StrategyConfig) -> pd.DataFrame:
     """
-    Calculate composite selection factor
-    :param df: Processed data containing factor information and period conversion
-    :param strategy: Strategy configuration
-    :return: Filtered data
+    Compute the composite selection factor and return df with the strategy.factor_name column.
 
-    ### df Column Description
-    Includes base columns: ['交易日期', '股票代码', '股票名称', '周频起始日', '月频起始日', '上市至今交易天数', '复权因子', '开盘价', '最高价',
-                '最低价', '收盘价', '成交额', '是否交易', '流通市值', '总市值', '下日_开盘涨停', '下日_是否ST', '下日_是否交易',
-                '下日_是否退市']
-    And result columns calculated from factors configured in config.
+    :param df: Daily panel after filter_before_select (stocks × trade dates); host base columns plus
+        strategy.factor_columns.
+    :param strategy: Strategy config; reads factor_list and factor_name, and rewrites select_num when the industry
+        quota is on.
+    :return: pd.DataFrame with the new strategy.factor_name column, smaller is better; with the quota on, only rows
+        within the quota are kept.
 
-    ### strategy Data Description
-    - strategy.name: Strategy name
-    - strategy.hold_period: Holding period
-    - strategy.select_num: Number of stocks to select
-    - strategy.factor_name: Composite factor name
-    - strategy.factor_list: List of selection factors
-    - strategy.filter_list: List of filter factors
-    - strategy.factor_columns: Column names of selection + filter factors
+    factor_list parsing: the entry named 一级行业 is the industry entry, its args 'original' or 'neutralized'; the
+    first remaining entry is the core factor, its args an industry quota (list or tuple) or a placeholder; every
+    later entry is an auxiliary factor, its args a numeric weight.
     """
+    ind = next((f for f in strategy.factor_list if f.name == '一级行业'), None)
+    others = [f for f in strategy.factor_list if f.name != '一级行业']
+    if ind is None or not others:
+        raise ValueError('factor_list must contain 一级行业 and at least one core factor')
+    core, aux_factors = others[0], others[1:]
 
-    # Extract data for all factors
-    core = None
-    ind = None
-    aux_factors = []
-    for f in strategy.factor_list:
-        if f.name == '一级行业':
-            ind = f
-        elif core is None:
-            core = f
-        else:
-            aux_factors.append(f)
+    neutralized = ind.args == 'neutralized'
+    quota = core.args if isinstance(core.args, (list, tuple)) else None
 
-    # Parse parameters
-    neutral_type = ind.args if ind.args in ['original', 'neutralized'] else 'original'  # Whether to apply industry neutralization to the core factor
-    quota = core.args  # Industry quota list
+    # Core factor: neutralize by industry on demand, then rank within each trade date by its ascending flag
+    core_col = core.col_name
+    if neutralized:
+        df = factor_neutralization(df, factor=core_col, neutralize_list=[], industry=ind.col_name)
+        core_col = f'{core_col}_中性'
+    by_date = df.groupby('交易日期')
+    df['核心排名'] = by_date[core_col].rank(ascending=core.is_sort_asc, method='min')
 
-    # Apply industry neutralization if configured
-    if neutral_type == 'neutralized':
-        # Apply industry neutralization to the core factor
-        df = factor_neutralization(df, factor=core.col_name, neutralize_list=[], industry=ind.col_name)
-        # Calculate Core Rank
-        df['核心排名'] = df.groupby('交易日期')[f'{core.col_name}_中性'].rank(ascending=False, method='min')
-    else:
-        # Calculate Core Rank
-        df['核心排名'] = df.groupby('交易日期')[core.col_name].rank(ascending=False, method='min')
-
-    df['复合因子'] = df['核心排名']
-
-    # Weighted ranking of auxiliary factors
+    # Composite = core rank + Σ(auxiliary rank × weight), smaller is better
+    composite = df['核心排名'].copy()
     for af in aux_factors:
-        af_rank = df.groupby('交易日期')[af.col_name].rank(ascending=af.is_sort_asc, method='min')
-        weight = float(af.args) if isinstance(af.args, (int, float)) else 1.0
-        df['复合因子'] = df['复合因子'] + af_rank * weight
+        composite = composite + by_date[af.col_name].rank(ascending=af.is_sort_asc, method='min') * af.weight
+    df[strategy.factor_name] = composite
 
-    # Check if quota is a list or tuple
-    if isinstance(quota, (list, tuple)):
+    # Industry quota: rank industries by mean core factor; the i-th industry keeps the top quota[i] by composite rank
+    if quota is not None:
         strategy.select_num = sum(quota)
-
-        # Calculate Industry Average Rank
-        rank_col = f'{core.col_name}_中性' if neutral_type == 'neutralized' else core.col_name
-        industry_stats = df.groupby(['交易日期', ind.col_name])[rank_col].agg(['mean']).reset_index()
-        industry_stats.columns = ['交易日期', ind.col_name, '行业平均值']
-        industry_stats['行业平均排名'] = industry_stats.groupby('交易日期')['行业平均值'].rank(ascending=False, method='min')
-
-        # Add Industry Average Rank
-        df = pd.merge(df, industry_stats[['交易日期', ind.col_name, '行业平均排名']],
-                      on=['交易日期', ind.col_name], how='left')
-
-        # Calculate Intra-Industry Rank based on Composite Factor
-        df['行业内排名'] = df.groupby(['交易日期', ind.col_name])['复合因子'].rank(ascending=True, method='min')
-        df['是否保留'] = np.nan
-        for i in range(len(quota)):
-            ind_rank = i + 1
-            ind_count = quota[i]
-
-            con1 = df['行业平均排名'] == ind_rank
-            con2 = df['行业内排名'] <= ind_count
-            df.loc[con1 & con2, '是否保留'] = 1
-
-        df = df[df['是否保留'] == 1]
+        industry_keys = ['交易日期', ind.col_name]
+        industry_rank = (
+            df.groupby(industry_keys)[core_col].mean()
+            .groupby(level='交易日期').rank(ascending=core.is_sort_asc, method='min')
+            .rename('行业平均排名')
+        )
+        df = df.join(industry_rank, on=industry_keys)
+        df['行业内排名'] = df.groupby(industry_keys)[strategy.factor_name].rank(ascending=True, method='min')
+        quota_by_rank = pd.Series(quota, index=range(1, len(quota) + 1), dtype='float64')
+        df = df[df['行业内排名'] <= df['行业平均排名'].map(quota_by_rank)]
 
     return df

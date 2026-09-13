@@ -9,51 +9,35 @@ Copyright: (c) 2026 Xinhao Zheng. Licensed under the MIT License.
 import pandas as pd
 
 fin_cols = []
+extra_data = {}
 
 
 def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     """
-    Calculate and add new factor columns to stock market data, returning the DataFrame with calculated factors and their aggregation method.
+    Compute the factor and return it as a single-column DataFrame.
 
-    Workflow:
-    1. Calculate factor values for the stock based on provided parameters.
-    2. Append factor values to the original market data DataFrame.
-
-    :param df: pd.DataFrame, containing K-line data for a single stock, must include market data (e.g., Close price).
-    :param param: Parameters required for factor calculation; format and meaning vary by factor type.
-    :param kwargs: Additional keyword arguments, including:
-        - col_name: Name of the new factor column.
-        - fin_data: Financial data dictionary, format {'Financial Data': fin_df, 'Raw Financial Data': raw_fin_df}, where fin_df is processed financial data and raw_fin_df is raw data, the latter can be used for custom calculations of certain factors.
-        - Other parameters: Other factor parameters passed as needed.
-    :return:
-        - pd.DataFrame: DataFrame containing the new factor column, with the same index as the input df.
-
-    Notes:
-    - If factor calculation involves financial data, relevant data can be provided via the `fin_data` parameter.
+    :param df: Daily K-line of one stock, ascending by trade date; columns declared in fin_cols / extra_data
+        are merged in by the host.
+    :param param: Factor parameter; see below.
+    :param kwargs: col_name — the output column name.
+    :return: pd.DataFrame with the single column col_name, on the index and length of df. The function does
+        not modify df.
 
     Volume Ratio Factor
     ---------------------------------------------------
-    Meaning: Measures the multiple of recent transaction amount relative to the long-term average.
-    Principle: Volume precedes price. An increase in volume is often a direct signal of capital entry.
-         - Ratio > 1: Recent volume expansion, increased capital attention.
-         - Ratio < 1: Recent volume contraction, light trading.
-    Goal: (When sorting False) To find stocks with significant recent volume expansion and clear signs of capital intervention.
-
+    Meaning: Ratio of short-window to long-window mean turnover amount.
+    Principle: Ratio > 1, recent volume has expanded above its norm; Ratio < 1, recent volume has contracted.
+         A large value ⇔ a larger volume expansion.
     Formula: mean(Amount, short) / mean(Amount, long)
-
-    param: (short, long) e.g., (5, 60)
-    Sorting: False (Larger is better = Volume Expansion = High Activity)
-
+    param: (short, long), e.g. (5, 60)
+    Sorting: False (larger is better)
+    Boundary: NaN for the first long − 1 rows and when the long-window mean amount is 0.
     Selection Case: ('z_VolumeRatio_en', False, (5, 60), 1)
     """
     col_name = kwargs['col_name']
-    short, long = param[0], param[1]
+    short, long = (int(x) for x in param)
 
     short_avg = df['成交额'].rolling(short, min_periods=short).mean()
     long_avg = df['成交额'].rolling(long, min_periods=long).mean()
 
-    ratio = short_avg / long_avg.replace(0, float('nan'))
-
-    factor_df = pd.DataFrame({col_name: ratio}, index=df.index)
-
-    return factor_df
+    return pd.DataFrame({col_name: short_avg / long_avg.where(long_avg > 0)}, index=df.index)

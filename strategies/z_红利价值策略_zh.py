@@ -7,43 +7,34 @@ Copyright: (c) 2026 Xinhao Zheng. Licensed under the MIT License.
 ---------------------------------------------------
 """
 import pandas as pd
-from core.model.strategy_config import StrategyConfig
-import numpy as np
+
 from core.market_essentials import factor_neutralization
+from core.model.strategy_config import StrategyConfig
 
 STG_INTRO = {
-    '策略直播': [],
-    '论坛帖子': [],
-    '相关船队': [],
     '策略说明': """
-    红利版的 FCFFEV 策略，遵循通用价值模板「因子A: X/价格 + 因子B: 验证X」。
-    - 因子A（z_红利价值_zh）：分红÷EV，衡量分红相对于企业真实标价是否便宜
-    - 因子B（z_FCF覆盖度_zh）：自由现金流÷分红总额，验证分红是否可持续
-    两个因子等权排名，一个管「值不值得买」，一个管「撑不撑得住」。
+    红利口径的 FCFFEV 策略，沿用价值模板「因子 A：X / 价格；因子 B：验证 X」。
+    - 因子 A（z_红利价值_zh）：股息 / 企业价值，回答“分红相对整家公司的标价是否便宜”；
+    - 因子 B（z_FCF覆盖度_zh）：自由现金流 / 分红总额，回答“分红是否被现金流覆盖”。
+    两者等权排名相加：一个管值不值得买，一个管撑不撑得住。
 
-    factor_list 中:
-        - z_红利价值_zh 和 一级行业: 必选
-        - z_FCF覆盖度_zh: 推荐（质量验证因子，替代原版分红策略中的归母净利润同比）
-        - 其余因子: 辅助排名因子，args 为权重（1=与核心因子等权, 0.5=半权）
-        - 复合因子 = 核心因子排名×1 + Σ(辅助因子排名×权重)，排名越小=越优
+    factor_list 解析规则：
+        - z_红利价值_zh 与 一级行业 必选；
+        - 一级行业 的 args 控制核心因子是否行业中性化：'original' 不做，'neutralized' 做；
+        - 核心因子的 args 为列表或元组时启用行业配额：先按行业内核心因子均值给行业排名，第 i 名行业保留
+          复合因子行业内排名前 quota[i] 的股票，select_num 置为配额之和；不为列表或元组时不启用；
+        - 其余因子为辅助排名因子，args 为权重（1 与核心因子等权，0.5 半权）。
+    复合因子 = 核心因子排名 + Σ(辅助因子排名 × 权重)，越小越优；排名方向取各因子的 ascending 位。
 
-    【z_红利价值_zh】的权重参数是行业超配规则，可以设置为一个列表或元组，长度可自定义，例如：
-        对行业平均值进行排序后得到行业平均排名，再对行业内股票因子值排序得到行业内排名，
-        [1,1,1,1,1]: 表示前5的行业，每个选1个股票
-        [2,2,2]：表示前3的行业，每个选2个股票
-        [3,2,1]：表示第1的行业选3个，第2的行业选2个，第3的行业选1个
-    当【z_红利价值_zh】的权重参数不为列表或元组，则不使用行业超配功能。
+    建议的 filter_list：
+        ('z_连续分红年份_zh', '', 'val:>=3', False)    连续分红不少于 3 年
+        ('z_分红质量_zh', 1, 'pct:<=0.5', False)       分红高且稳，位于全市场前一半
+        ('一级行业过滤', ['银行', '非银金融', '房地产'], 'val:==0', False)
+                                                       排除高杠杆行业——银行、保险的报表格式不含 EV 所需的借款科目
 
-    【一级行业】的权重参数控制是否要对核心因子做行业中性化，可以设置：
-        original：不做行业中性化
-        neutralized：做行业中性化
-
-    建议搭配的 filter_list：
-        ('z_连续分红年份_zh', '', 'val:>=3', False)  — 至少连续分红3年（硬门槛）
-        ('z_分红质量_zh', 1, 'pct:<=0.5', False)  — 分红质量（高且稳）处于全市场较好的一半以内
-        ('一级行业过滤', ['银行', '非银金融', '房地产'], 'val:==0', False)  — 排除高杠杆行业
+    用例-1：双因子等权排名，周频；用例-2：行业配额 [3, 2, 1]，共选 6 只。
     """,
-    '使用案例-1（推荐：双因子排名）':
+    '使用案例-1':
         {
             'name': 'z_红利价值策略_zh',
             'hold_period': 'W',
@@ -60,12 +51,12 @@ STG_INTRO = {
                             ('一级行业过滤', ['银行', '非银金融', '房地产'], 'val:==0', False),
                             ],
         },
-    '使用案例-2（行业配额）':
+    '使用案例-2':
         {
             'name': 'z_红利价值策略_zh',
             'hold_period': 'W',
             'offset_list': [0, 1, 2, 3, 4],
-            'select_num': 5,
+            'select_num': 6,
             'cap_weight': 1,
             'rebalance_time': 'open',
             'factor_list': [('z_红利价值_zh', False, '', [3, 2, 1]),
@@ -82,86 +73,50 @@ STG_INTRO = {
 
 def calc_select_factor(df, strategy: StrategyConfig) -> pd.DataFrame:
     """
-    计算复合选股因子
-    :param df: 整理好的数据，包含因子信息，并做过周期转换
-    :param strategy: 策略配置
-    :return: 返回过滤后的数据
+    计算复合选股因子，返回带 strategy.factor_name 列的 df。
 
-    ### df 列说明
-    包含基础列：  ['交易日期', '股票代码', '股票名称', '周频起始日', '月频起始日', '上市至今交易天数', '复权因子', '开盘价', '最高价',
-                '最低价', '收盘价', '成交额', '是否交易', '流通市值', '总市值', '下日_开盘涨停', '下日_是否ST', '下日_是否交易',
-                '下日_是否退市']
-    以及config中配置好的，因子计算的结果列。
+    :param df: filter_before_select 之后的日频面板（多股票 × 多交易日），列为框架基础列与 strategy.factor_columns。
+    :param strategy: 策略配置；读取 factor_list 与 factor_name，启用行业配额时改写 select_num。
+    :return: pd.DataFrame，新增 strategy.factor_name 列，越小越优；启用行业配额时只保留配额内的行。
 
-    ### strategy 数据说明
-    - strategy.name: 策略名称
-    - strategy.hold_period: 持仓周期
-    - strategy.select_num: 选股数量
-    - strategy.factor_name: 复合因子名称
-    - strategy.factor_list: 选股因子列表
-    - strategy.filter_list: 过滤因子列表
-    - strategy.factor_columns: 选股+过滤因子的列名
+    factor_list 解析：名为 一级行业 的项为行业项，其 args 为 'original' 或 'neutralized'；其余第一项为核心因子，
+    其 args 为行业配额（列表或元组）或占位；其后各项为辅助因子，其 args 为数值权重。
     """
+    ind = next((f for f in strategy.factor_list if f.name == '一级行业'), None)
+    others = [f for f in strategy.factor_list if f.name != '一级行业']
+    if ind is None or not others:
+        raise ValueError('factor_list 须包含 一级行业 与至少一个核心因子')
+    core, aux_factors = others[0], others[1:]
 
-    # 拿出所有因子的数据
-    core = None
-    ind = None
-    aux_factors = []
-    for f in strategy.factor_list:
-        if f.name == '一级行业':
-            ind = f
-        elif core is None:
-            core = f
-        else:
-            aux_factors.append(f)
+    neutralized = ind.args == 'neutralized'
+    quota = core.args if isinstance(core.args, (list, tuple)) else None
 
-    # 解析参数
-    neutral_type = ind.args if ind.args in ['original', 'neutralized'] else 'original'  # 是否对核心因子做行业中性化
-    quota = core.args  # 行业超配列表
+    # 核心因子：按需行业中性化，再按其 ascending 位在每个交易日内排名
+    core_col = core.col_name
+    if neutralized:
+        df = factor_neutralization(df, factor=core_col, neutralize_list=[], industry=ind.col_name)
+        core_col = f'{core_col}_中性'
+    by_date = df.groupby('交易日期')
+    df['核心排名'] = by_date[core_col].rank(ascending=core.is_sort_asc, method='min')
 
-    # 是否进行行业中性化
-    if neutral_type == 'neutralized':
-        # 对核心因子进行行业中性化
-        df = factor_neutralization(df, factor=core.col_name, neutralize_list=[], industry=ind.col_name)
-        # 计算核心排名
-        df['核心排名'] = df.groupby('交易日期')[f'{core.col_name}_中性'].rank(ascending=False, method='min')
-    else:
-        # 计算核心排名
-        df['核心排名'] = df.groupby('交易日期')[core.col_name].rank(ascending=False, method='min')
-
-    df['复合因子'] = df['核心排名']
-
-    # 计算辅助因子排名并加权
+    # 复合因子 = 核心排名 + Σ(辅助排名 × 权重)，越小越优
+    composite = df['核心排名'].copy()
     for af in aux_factors:
-        af_rank = df.groupby('交易日期')[af.col_name].rank(ascending=af.is_sort_asc, method='min')
-        weight = float(af.args) if isinstance(af.args, (int, float)) else 1.0
-        df['复合因子'] = df['复合因子'] + af_rank * weight
+        composite = composite + by_date[af.col_name].rank(ascending=af.is_sort_asc, method='min') * af.weight
+    df[strategy.factor_name] = composite
 
-    # 检查quota是否是一个列表或者元组
-    if isinstance(quota, (list, tuple)):
+    # 行业配额：按行业内核心因子均值给行业排名，第 i 名行业保留复合因子行业内排名前 quota[i] 的股票
+    if quota is not None:
         strategy.select_num = sum(quota)
-
-        # 计算行业平均值排名
-        rank_col = f'{core.col_name}_中性' if neutral_type == 'neutralized' else core.col_name
-        industry_stats = df.groupby(['交易日期', ind.col_name])[rank_col].agg(['mean']).reset_index()
-        industry_stats.columns = ['交易日期', ind.col_name, '行业平均值']
-        industry_stats['行业平均排名'] = industry_stats.groupby('交易日期')['行业平均值'].rank(ascending=False, method='min')
-
-        # 添加行业平均排名
-        df = pd.merge(df, industry_stats[['交易日期', ind.col_name, '行业平均排名']],
-                      on=['交易日期', ind.col_name], how='left')
-
-        # 计算复合因子行业内排名
-        df['行业内排名'] = df.groupby(['交易日期', ind.col_name])['复合因子'].rank(ascending=True, method='min')
-        df['是否保留'] = np.nan
-        for i in range(len(quota)):
-            ind_rank = i + 1
-            ind_count = quota[i]
-
-            con1 = df['行业平均排名'] == ind_rank
-            con2 = df['行业内排名'] <= ind_count
-            df.loc[con1 & con2, '是否保留'] = 1
-
-        df = df[df['是否保留'] == 1]
+        industry_keys = ['交易日期', ind.col_name]
+        industry_rank = (
+            df.groupby(industry_keys)[core_col].mean()
+            .groupby(level='交易日期').rank(ascending=core.is_sort_asc, method='min')
+            .rename('行业平均排名')
+        )
+        df = df.join(industry_rank, on=industry_keys)
+        df['行业内排名'] = df.groupby(industry_keys)[strategy.factor_name].rank(ascending=True, method='min')
+        quota_by_rank = pd.Series(quota, index=range(1, len(quota) + 1), dtype='float64')
+        df = df[df['行业内排名'] <= df['行业平均排名'].map(quota_by_rank)]
 
     return df

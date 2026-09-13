@@ -8,80 +8,58 @@ Copyright: (c) 2026 Xinhao Zheng. Licensed under the MIT License.
 """
 import pandas as pd
 
-fin_cols = [
-    'R_np@xbx_ttm', 'R_np@xbx_单季',
+# param → net profit column
+_PROFIT_COLS = {'全年': 'R_np@xbx_ttm', '单季': 'R_np@xbx_单季'}
+
+# EV addends; cash is the subtrahend; total assets only anchors whether a balance sheet exists
+_EV_ADDENDS = [
     'B_st_borrow@xbx', 'B_lt_loan@xbx', 'B_bond_payable@xbx',
-    'B_lease_libilities@xbx', 'B_minority_equity@xbx',
-    'B_preferred_shares@xbx', 'B_currency_fund@xbx',
+    'B_lease_libilities@xbx', 'B_minority_equity@xbx', 'B_preferred_shares@xbx',
 ]
+_EV_CASH = 'B_currency_fund@xbx'
+_EV_ANCHOR = 'B_total_assets@xbx'
+
+fin_cols = [*_PROFIT_COLS.values(), *_EV_ADDENDS, _EV_CASH, _EV_ANCHOR]
+extra_data = {}
 
 
 def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     """
-    Calculate and add new factor columns to stock market data, returning the DataFrame with calculated factors and their aggregation method.
+    Compute the factor and return it as a single-column DataFrame.
 
-    Workflow:
-    1. Calculate factor values for the stock based on provided parameters.
-    2. Append factor values to the original market data DataFrame.
-
-    :param df: pd.DataFrame, containing K-line data for a single stock, must include market data (e.g., Close price).
-    :param param: Parameters required for factor calculation; format and meaning vary by factor type.
-    :param kwargs: Additional keyword arguments, including:
-        - col_name: Name of the new factor column.
-        - fin_data: Financial data dictionary, format {'Financial Data': fin_df, 'Raw Financial Data': raw_fin_df}, where fin_df is processed financial data and raw_fin_df is raw data, the latter can be used for custom calculations of certain factors.
-        - Other parameters: Other factor parameters passed as needed.
-    :return:
-        - pd.DataFrame: DataFrame containing the new factor column, with the same index as the input df.
-
-    Notes:
-    - If factor calculation involves financial data, relevant data can be provided via the `fin_data` parameter.
+    :param df: Daily K-line of one stock, ascending by trade date; columns declared in fin_cols / extra_data
+        are merged in by the host.
+    :param param: Factor parameter; see below.
+    :param kwargs: col_name — the output column name.
+    :return: pd.DataFrame with the single column col_name, on the index and length of df. The function does
+        not modify df.
 
     Earnings Yield EV Factor
     ---------------------------------------------------
-    Meaning: An enterprise-value-based variant of EP. Net profit is divided by EV rather
-         than market cap, removing capital-structure (leverage) distortion from valuation
-         ranking.
-    Principle: EP = Net Profit / Market Cap reflects the equity-holder perspective only;
-         this factor replaces the denominator with EV (Market Cap + interest-bearing debt
-         + minority interest + preferred stock − cash),
-         so heavily leveraged firms are not spuriously ranked as cheap due to a small
-         market cap.
-         Larger values indicate higher earnings return at whole-firm price, i.e. lower
-         valuation (cheaper).
-
+    Meaning: EP on an enterprise-value basis — net profit divided by EV rather than market cap.
+    Principle: EP = Net Profit / Market Cap takes the equity holder's view only; with EV as the denominator, a
+         leveraged firm no longer looks cheap because its market cap is small, and a net-cash firm becomes
+         correspondingly cheaper. A large value ⇔ a high earnings return at the whole-firm price, i.e. a low
+         valuation.
     Formula: Net Profit / EV
-      EV = Market Cap + Short-Term Borrowings + Long-Term Loans
-           + Bonds Payable + Lease Liabilities
+      EV = Market Cap + Short-Term Borrowings + Long-Term Loans + Bonds Payable + Lease Liabilities
            + Minority Interest + Preferred Stock − Cash
-
     param: '全年' (TTM net profit) or '单季' (latest single-quarter net profit)
-    Sorting: False (Larger is better)
-
+    Sorting: False (larger is better)
+    Boundary: A line item unlisted in the statement is 0 — unlisted means zero, not missing. NaN when Net
+         Profit or Market Cap is missing, the balance sheet is missing (Total Assets empty), or EV ≤ 0. Bank
+         and insurer statement formats carry no borrowing or cash items, so their EV holds only market cap and
+         the items they do list, and is not comparable with non-financials — exclude financials via
+         filter_list, or accept that knowingly.
     Selection Case: ('z_EarningsYieldEV_en', False, '全年', 1)
     Filter Case:    ('z_EarningsYieldEV_en', '全年', 'pct:<=0.8', False)
     """
     col_name = kwargs['col_name']
+    if param not in _PROFIT_COLS:
+        raise ValueError(f"param accepts '全年' or '单季', got {param!r}")
 
-    profit_cols = {
-        '全年': 'R_np@xbx_ttm',
-        '单季': 'R_np@xbx_单季',
-    }
-    if param not in profit_cols:
-        raise ValueError(f"z_EarningsYieldEV_en supports only '全年' or '单季', got: {param}")
-    profit_col = profit_cols[param]
+    # Unlisted items are 0; a missing balance sheet or EV ≤ 0 is NaN
+    ev = df['总市值'] + df[_EV_ADDENDS].fillna(0).sum(axis=1) - df[_EV_CASH].fillna(0)
+    ev = ev.where(df[_EV_ANCHOR].notna() & (ev > 0))
 
-    ev = (df['总市值'].fillna(0)
-          + df['B_st_borrow@xbx'].fillna(0)
-          + df['B_lt_loan@xbx'].fillna(0)
-          + df['B_bond_payable@xbx'].fillna(0)
-          + df['B_lease_libilities@xbx'].fillna(0)
-          + df['B_minority_equity@xbx'].fillna(0)
-          + df['B_preferred_shares@xbx'].fillna(0)
-          - df['B_currency_fund@xbx'].fillna(0))
-
-    factor_df = pd.DataFrame(
-        {col_name: df[profit_col] / ev.replace(0, float('nan'))},
-        index=df.index,
-    )
-
-    return factor_df
+    return pd.DataFrame({col_name: df[_PROFIT_COLS[param]] / ev}, index=df.index)

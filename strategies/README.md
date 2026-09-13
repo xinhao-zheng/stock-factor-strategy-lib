@@ -32,11 +32,11 @@ def calc_select_factor(df: pd.DataFrame, strategy) -> pd.DataFrame:
 - **`factor_list`** — `(name, ascending, param, weight)`. The first non-industry entry is the core factor; the rest are auxiliaries.
 - **`filter_list`** — `(name, param, rule, ascending)`, where `rule` is a threshold such as `val:>=1` or `pct:<=0.5`.
 - **Composite** — `composite = core_rank + Σ(aux_rank × weight)`, smaller is better. Ranks carry no unit, so factors on different scales combine without normalization.
-- **Industry control** — a list weight on the core factor (e.g. `[3,2,1]`) imposes a per-industry quota; `neutralized` on the industry entry ranks within industry, not across the market.
+- **Industry control** — a list weight on the core factor (e.g. `[3,2,1]`) imposes a per-industry quota; `neutralized` on the industry entry regresses the core factor on industry dummies and ranks the residual — the industry mean is removed, the ranking stays market-wide.
 - **`factor_list`** —— `(名称, 升序, 参数, 权重)`。第一个非行业项为核心因子，其余为辅助因子。
 - **`filter_list`** —— `(名称, 参数, 规则, 升序)`，`规则` 为阈值，如 `val:>=1` 或 `pct:<=0.5`。
 - **复合** —— `复合 = 核心排名 + Σ(辅助排名 × 权重)`，越小越优。排名无量纲，故不同量纲的因子无需标准化即可合成。
-- **行业控制** —— 核心因子权重设为列表（如 `[3,2,1]`）即施加分行业配额；行业项设为 `neutralized` 则在行业内排名而非全市场排名。
+- **行业控制** —— 核心因子权重设为列表（如 `[3,2,1]`）即施加分行业配额；行业项设为 `neutralized` 则将核心因子对行业哑变量回归、以残差排名——剔除的是行业均值，排名仍在全市场进行。
 
 A strategy composes scores the framework has already computed; it does not recompute raw signals. Each file's `STG_INTRO` is its specification.
 策略组合的是框架已算好的分值，不重新计算原始信号。每个文件的 `STG_INTRO` 即其规格。

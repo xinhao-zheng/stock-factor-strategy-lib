@@ -8,75 +8,54 @@ Copyright: (c) 2026 Xinhao Zheng. Licensed under the MIT License.
 """
 import pandas as pd
 
-fin_cols = [
+# EV addends; cash is the subtrahend; total assets only anchors whether a balance sheet exists
+_EV_ADDENDS = [
     'B_st_borrow@xbx', 'B_lt_loan@xbx', 'B_bond_payable@xbx',
-    'B_lease_libilities@xbx', 'B_minority_equity@xbx',
-    'B_preferred_shares@xbx', 'B_currency_fund@xbx',
+    'B_lease_libilities@xbx', 'B_minority_equity@xbx', 'B_preferred_shares@xbx',
 ]
+_EV_CASH = 'B_currency_fund@xbx'
+_EV_ANCHOR = 'B_total_assets@xbx'
+
+fin_cols = [*_EV_ADDENDS, _EV_CASH, _EV_ANCHOR]
 extra_data = {'dividend-delivery': ['分红率_最近日']}
 
 
 def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     """
-    Calculate and add new factor columns to stock market data, returning the DataFrame with calculated factors and their aggregation method.
+    Compute the factor and return it as a single-column DataFrame.
 
-    Workflow:
-    1. Calculate factor values for the stock based on provided parameters.
-    2. Append factor values to the original market data DataFrame.
-
-    :param df: pd.DataFrame, containing K-line data for a single stock, must include market data (e.g., Close price).
-    :param param: Parameters required for factor calculation; format and meaning vary by factor type.
-    :param kwargs: Additional keyword arguments, including:
-        - col_name: Name of the new factor column.
-        - fin_data: Financial data dictionary, format {'Financial Data': fin_df, 'Raw Financial Data': raw_fin_df}, where fin_df is processed financial data and raw_fin_df is raw data, the latter can be used for custom calculations of certain factors.
-        - Other parameters: Other factor parameters passed as needed.
-    :return:
-        - pd.DataFrame: DataFrame containing the new factor column, with the same index as the input df.
-
-    Notes:
-    - If factor calculation involves financial data, relevant data can be provided via the `fin_data` parameter.
+    :param df: Daily K-line of one stock, ascending by trade date; columns declared in fin_cols / extra_data
+        are merged in by the host.
+    :param param: Factor parameter; see below.
+    :param kwargs: col_name — the output column name.
+    :return: pd.DataFrame with the single column col_name, on the index and length of df. The function does
+        not modify df.
 
     Dividend Value Factor
     ---------------------------------------------------
-    Meaning: The dividend analog of FCFFEV. Measures dividend yield per unit of
-         Enterprise Value, adjusted for capital structure.
-    Principle: Current Dividend Yield x (Market Cap / EV).
-         - Current Dividend Yield: How much dividend relative to today's price.
-         - Market Cap / EV: Leverage adjustment (< 1 for leveraged firms, penalizing them).
-         Larger values indicate generous dividends at a cheap whole-firm price.
-         Dividend stability is ensured by filters (z_ConsecutiveDividendYears_en or
-         z_DividendQuality_en), not by discounting the factor value.
-
-    Formula: DivYield_Latest x (MarketCap / EV)
-      DivYield_Latest = TTM Dividend / Daily Close (updated daily by data_bridge)
-      EV = Market Cap + Short-Term Borrowings + Long-Term Loans
-           + Bonds Payable + Lease Liabilities
-           + Minority Interest + Preferred Stock - Cash
-
-    param: None (pass empty string)
-    Sorting: False (Larger is better)
-
+    Meaning: The dividend analog of FCFFEV — dividend per unit of enterprise value.
+    Principle: Current Dividend Yield × (Market Cap / EV). Market Cap / EV is the capital-structure
+         correction: below 1 for a leveraged firm, which is discounted; above 1 for a net-cash firm. A large
+         value ⇔ a high dividend at a low whole-firm price. Dividend stability is enforced by filters
+         (z_ConsecutiveDividendYears_en, z_DividendQuality_en), not discounted inside the factor.
+    Formula: 分红率_最近日 × (Market Cap / EV)
+      分红率_最近日 = TTM Dividend per Share / Daily Close (refreshed daily by the host's data_bridge)
+      EV = Market Cap + Short-Term Borrowings + Long-Term Loans + Bonds Payable + Lease Liabilities
+           + Minority Interest + Preferred Stock − Cash
+    param: None (pass '')
+    Sorting: False (larger is better)
+    Boundary: A line item unlisted in the statement is 0 — unlisted means zero, not missing. NaN when Market
+         Cap is missing, the balance sheet is missing (Total Assets empty), or EV ≤ 0. Bank and insurer
+         statement formats carry no borrowing or cash items, so their EV holds only market cap and the items
+         they do list, and is not comparable with non-financials — exclude financials via filter_list, or
+         accept that knowingly.
     Selection Case: ('z_DividendValue_en', False, '', 1)
     Filter Case:    ('z_DividendValue_en', '', 'pct:<=0.5', False)
     """
     col_name = kwargs['col_name']
 
-    div_yield = df['分红率_最近日']
+    # Unlisted items are 0; a missing balance sheet or EV ≤ 0 is NaN
+    ev = df['总市值'] + df[_EV_ADDENDS].fillna(0).sum(axis=1) - df[_EV_CASH].fillna(0)
+    ev = ev.where(df[_EV_ANCHOR].notna() & (ev > 0))
 
-    ev = (df['总市值'].fillna(0)
-          + df['B_st_borrow@xbx'].fillna(0)
-          + df['B_lt_loan@xbx'].fillna(0)
-          + df['B_bond_payable@xbx'].fillna(0)
-          + df['B_lease_libilities@xbx'].fillna(0)
-          + df['B_minority_equity@xbx'].fillna(0)
-          + df['B_preferred_shares@xbx'].fillna(0)
-          - df['B_currency_fund@xbx'].fillna(0))
-
-    mv_ev_ratio = df['总市值'] / ev.replace(0, float('nan'))
-
-    factor_df = pd.DataFrame(
-        {col_name: div_yield * mv_ev_ratio},
-        index=df.index,
-    )
-
-    return factor_df
+    return pd.DataFrame({col_name: df['分红率_最近日'] * df['总市值'] / ev}, index=df.index)
