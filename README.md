@@ -11,7 +11,7 @@ Plug-in factors and strategies for a stock-selection framework: a factor measure
 .
 ├── factors/          # add_factor(df, param, **kwargs) → one factor column · 一列因子值
 ├── strategies/       # calc_select_factor(df, strategy) + STG_INTRO → holdings · 持仓
-├── requirements.txt  # pandas, numpy
+├── requirements.txt  # pandas
 └── LICENSE
 ```
 
@@ -22,7 +22,7 @@ Every module ships in two editions of identical logic — English `z_EnglishName
 
 ## Encoding | 编码
 
-UTF-8, no BOM. · UTF-8，无 BOM。
+UTF-8, no BOM, LF line endings. · UTF-8，无 BOM，LF 换行。
 
 ---
 

@@ -1,4 +1,3 @@
 # Runtime dependencies for the factor / strategy modules.
 # The host stock-selection framework (core.*) is a separate, non-pip dependency.
 pandas>=1.3
-numpy>=1.20
