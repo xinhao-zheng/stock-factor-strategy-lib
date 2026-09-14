@@ -32,6 +32,11 @@ STG_INTRO = {
         ('一级行业过滤', ['银行', '非银金融', '房地产'], 'val:==0', False)
                                                        排除高杠杆行业——银行、保险的报表格式不含 EV 所需的借款科目
 
+    已知限制：排名取 method='min'，复合因子同分者并列进入配额与 select_num，实际持仓数可能多于配置值，与框架
+    select_by_factor 的规则一致。行业中性化以 '综合' 为基准行业，面板不含该行业时报错，短区间回测或强过滤下可能
+    出现。z_连续分红年份_zh 与 z_分红质量_zh 透传框架分红桥的列，该桥按报告期开窗、不按登记日截断，特别分红与
+    中期分红使排序冲突时会提前吸收尚未登记的记录（见两因子的边界段）。
+
     用例-1：双因子等权排名，周频；用例-2：行业配额 [3, 2, 1]，共选 6 只。
     """,
     '使用案例-1':
@@ -94,6 +99,9 @@ def calc_select_factor(df, strategy: StrategyConfig) -> pd.DataFrame:
     # 核心因子：按需行业中性化，再按其 ascending 位在每个交易日内排名
     core_col = core.col_name
     if neutralized:
+        # factor_neutralization 以 '综合' 为基准行业删除其哑变量，面板不含该行业时它抛 KeyError；先给出可读的报错
+        if not ((df[ind.col_name] == '综合') & df[core_col].notna()).any():
+            raise ValueError("行业中性化以 '综合' 为基准行业，当前面板无该行业的有效核心因子值")
         df = factor_neutralization(df, factor=core_col, neutralize_list=[], industry=ind.col_name)
         core_col = f'{core_col}_中性'
     by_date = df.groupby('交易日期')

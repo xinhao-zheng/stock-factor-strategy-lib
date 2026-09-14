@@ -34,7 +34,7 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     Formula: 分红率_最近日 × clip(FCF Coverage, 0, cap)
       FCF Coverage = (Operating Cash Flow TTM − CapEx TTM) / Total Dividend TTM
       Total Dividend TTM = Dividend per Share (TTM) × Total Shares, Total Shares = Market Cap / Close
-    param: cap (coverage ceiling, default 3.0; 1.0 means a dividend exactly covered scores in full)
+    param: cap (coverage ceiling, positive, default 3.0; 1.0 means a dividend exactly covered scores in full)
     Sorting: False (larger is better)
     Boundary: NaN when any input is missing, Close ≤ 0, or the TTM dividend is 0.
     Selection Case: ('z_DividendSafetyMargin_en', False, 3, 1)
@@ -42,6 +42,8 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     """
     col_name = kwargs['col_name']
     cap = float(param) if param not in (None, '') else 3.0
+    if cap <= 0:
+        raise ValueError(f'param must be a positive coverage ceiling, got {param!r}')
 
     fcf_ttm = df['C_ncf_from_oa@xbx_ttm'] - df['C_cash_paid_for_assets@xbx_ttm']
     close = df['收盘价'].where(df['收盘价'] > 0)

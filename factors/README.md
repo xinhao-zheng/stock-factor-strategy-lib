@@ -25,9 +25,11 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
 - **Input** — `df`: one stock's K-line plus any columns named in `fin_cols` / `extra_data`. `param`: the factor's single setting — a window, a tuple, or a mode string. `col_name`: the output name, passed through `kwargs`.
 - **Output** — a one-column DataFrame on `df`'s index; the module writes nothing else and keeps no state.
 - **Missing data** — read only what is declared; when an input is absent, return `NaN`, never a substitute. A line item unlisted in a filed statement is zero, not missing; the statement itself absent is missing.
+- **Parameter domain** — the module coerces `param` (`int`, `float`, tuple of `int`) and raises `ValueError` naming `param` when it falls outside the formula's domain; it never returns a silently degenerate column.
 - **输入** —— `df`：单只股票的 K 线，加上 `fin_cols` / `extra_data` 声明的列。`param`：因子唯一参数——窗口、元组或模式字符串。`col_name`：输出列名，经 `kwargs` 传入。
 - **输出** —— 与 `df` 同索引的单列 DataFrame；模块不写其他内容、不保留状态。
 - **缺失数据** —— 只读声明的列；输入缺失时返回 `NaN`，绝不填充替代值。已披露报表中未列示的科目为零，不是缺失；报表本身不存在才是缺失。
+- **参数域** —— 模块对 `param` 做强制类型转换（`int`、`float`、`int` 元组），超出公式定义域时抛出带 `param` 字样的 `ValueError`，不静默返回退化的列。
 
 ---
 

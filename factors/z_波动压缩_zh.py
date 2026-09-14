@@ -30,13 +30,16 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     原理：比值 > 1，近期波动相对放大，个股脱离盘整进入活跃期；比值 < 1，近期波动收敛，仍在盘整。
          因子值大 ⇔ 波动正在放大。
     公式：std(涨跌幅, short) / std(涨跌幅, long)
-    param: (short, long)，如 (10, 60)
+    param: (short, long)，整数且 2 ≤ short < long，如 (10, 60)
     排序：False（值越大越优）
-    边界：前 long − 1 行、长窗口波动率低于 1e-10（视为无波动）时为 NaN。
+    边界：前 long − 1 行、长窗口波动率低于 1e-10（视为无波动）时为 NaN。停牌日由框架补为成交量、成交额、涨跌幅
+         为 0 的行，计入窗口。
     选股因子案例：('z_波动压缩_zh', False, (10, 60), 1)
     """
     col_name = kwargs['col_name']
     short, long = (int(x) for x in param)
+    if not 1 < short < long:
+        raise ValueError(f'param 须为 (short, long) 且 2 ≤ short < long，收到 {param!r}')
 
     short_vol = df['涨跌幅'].rolling(short, min_periods=short).std()
     long_vol = df['涨跌幅'].rolling(long, min_periods=long).std()

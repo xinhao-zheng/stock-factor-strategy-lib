@@ -32,15 +32,20 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     Formula: Mean × Mean / (Mean + k × Std)
       Mean = 分红率_登记日_近年均值, Std = 分红率_登记日_近年标准差
       (computed by the host's data_bridge over record-date entries within three years of the report period)
-    param: k (volatility penalty, default 1; 0.5 lenient, 2 strict)
+    param: k (volatility penalty, non-negative, default 1; 0.5 lenient, 2 strict)
     Sorting: False (larger is better)
     Boundary: NaN when Mean or Std is missing — with a single record within three years Std is undefined,
-         stability cannot be judged, and 0 is not substituted; NaN when the denominator is 0.
+         stability cannot be judged, and 0 is not substituted; NaN when the denominator is 0. The host's
+         data_bridge windows by report period, not by record date: when a special or interim dividend puts the
+         two orders at odds, the span between two adjacent record dates absorbs a record not yet registered —
+         a host-side limitation.
     Selection Case: ('z_DividendQuality_en', False, 1, 1)
     Filter Case:    ('z_DividendQuality_en', 1, 'pct:<=0.5', False)
     """
     col_name = kwargs['col_name']
     k = float(param) if param not in (None, '') else 1.0
+    if k < 0:
+        raise ValueError(f'param must be a non-negative volatility penalty, got {param!r}')
 
     mean = df['分红率_登记日_近年均值']
     std = df['分红率_登记日_近年标准差']

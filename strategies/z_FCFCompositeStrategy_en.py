@@ -27,6 +27,11 @@ STG_INTRO = {
         - every other factor is an auxiliary ranking factor whose args is its weight (1 equal to FCFFEV, 0.5 half).
     Composite = FCFFEV Rank + Σ(Auxiliary Rank × Weight), smaller is better; each rank follows its own ascending flag.
 
+    Known limits: ranks use method='min', so stocks tied on the composite enter the quota and select_num together
+    and the holding count can exceed the configured value — the same rule as the host's select_by_factor. Industry
+    neutralization takes '综合' as the base industry and raises when the panel lacks it, which can occur in short
+    backtests or under tight filters.
+
     Use Case-1: pure FCFFEV, weekly; Use Case-2: FCFFEV industry quota [3, 2, 1] with z_MomentumVolatility_en and
     z_TrendPurity_en, 3-day holding, intraday 09:50 rebalance (requires minute-level close data), 6 stocks in total.
     """,
@@ -92,6 +97,12 @@ def calc_select_factor(df, strategy: StrategyConfig) -> pd.DataFrame:
     # Core factor: neutralize by industry on demand, then rank within each trade date by its ascending flag
     core_col = core.col_name
     if neutralized:
+        # factor_neutralization drops the '综合' dummy as the base industry and raises KeyError when the panel
+        # lacks it; fail first with a readable message
+        if not ((df[ind.col_name] == '综合') & df[core_col].notna()).any():
+            raise ValueError(
+                "neutralization uses '综合' as the base industry; the panel has no valid core value for it"
+            )
         df = factor_neutralization(df, factor=core_col, neutralize_list=[], industry=ind.col_name)
         core_col = f'{core_col}_中性'
     by_date = df.groupby('交易日期')

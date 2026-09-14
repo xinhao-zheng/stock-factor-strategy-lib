@@ -30,7 +30,7 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     公式：分红率_最近日 × clip(FCF覆盖度, 0, cap)
       FCF覆盖度 = (经营活动现金流净额TTM − 购建固定资产等支付的现金TTM) / 近一年分红总额
       近一年分红总额 = 近一年分红（每股）× 总股本，总股本 = 总市值 / 收盘价
-    param: cap（覆盖度上限，默认 3.0；1.0 表示分红恰被覆盖即满分）
+    param: cap（覆盖度上限，正数，默认 3.0；1.0 表示分红恰被覆盖即满分）
     排序：False（值越大越优）
     边界：任一输入缺失、收盘价 ≤ 0 或近一年分红为 0 时为 NaN。
     选股因子案例：('z_红利安全边际_zh', False, 3, 1)
@@ -38,6 +38,8 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     """
     col_name = kwargs['col_name']
     cap = float(param) if param not in (None, '') else 3.0
+    if cap <= 0:
+        raise ValueError(f'param 须为正的覆盖度上限，收到 {param!r}')
 
     fcf_ttm = df['C_ncf_from_oa@xbx_ttm'] - df['C_cash_paid_for_assets@xbx_ttm']
     close = df['收盘价'].where(df['收盘价'] > 0)

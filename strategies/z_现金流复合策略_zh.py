@@ -25,6 +25,10 @@ STG_INTRO = {
         - 其余因子为辅助排名因子，args 为权重（1 与 FCFFEV 等权，0.5 半权）。
     复合因子 = FCFFEV 排名 + Σ(辅助因子排名 × 权重)，越小越优；排名方向取各因子的 ascending 位。
 
+    已知限制：排名取 method='min'，复合因子同分者并列进入配额与 select_num，实际持仓数可能多于配置值，与框架
+    select_by_factor 的规则一致。行业中性化以 '综合' 为基准行业，面板不含该行业时报错，短区间回测或强过滤下可能
+    出现。
+
     用例-1：纯 FCFFEV，周频；用例-2：FCFFEV 行业配额 [3, 2, 1] 叠加 z_动量叠波_zh 与 z_趋势纯度_zh，3 日调仓、
     日内 09:50 换仓（依赖分钟级收盘价数据），共选 6 只。
     """,
@@ -86,6 +90,9 @@ def calc_select_factor(df, strategy: StrategyConfig) -> pd.DataFrame:
     # 核心因子：按需行业中性化，再按其 ascending 位在每个交易日内排名
     core_col = core.col_name
     if neutralized:
+        # factor_neutralization 以 '综合' 为基准行业删除其哑变量，面板不含该行业时它抛 KeyError；先给出可读的报错
+        if not ((df[ind.col_name] == '综合') & df[core_col].notna()).any():
+            raise ValueError("行业中性化以 '综合' 为基准行业，当前面板无该行业的有效核心因子值")
         df = factor_neutralization(df, factor=core_col, neutralize_list=[], industry=ind.col_name)
         core_col = f'{core_col}_中性'
     by_date = df.groupby('交易日期')

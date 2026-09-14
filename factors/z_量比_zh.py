@@ -26,13 +26,16 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     含义：短窗口成交额均值与长窗口成交额均值之比。
     原理：比值 > 1，近期放量，成交活跃度高于常态；比值 < 1，近期缩量。因子值大 ⇔ 放量幅度大。
     公式：mean(成交额, short) / mean(成交额, long)
-    param: (short, long)，如 (5, 60)
+    param: (short, long)，正整数且 short < long，如 (5, 60)
     排序：False（值越大越优）
-    边界：前 long − 1 行、长窗口成交额均值为 0 时为 NaN。
+    边界：前 long − 1 行、长窗口成交额均值为 0 时为 NaN。停牌日由框架补为成交量、成交额、涨跌幅为 0 的行，
+         计入窗口。
     选股因子案例：('z_量比_zh', False, (5, 60), 1)
     """
     col_name = kwargs['col_name']
     short, long = (int(x) for x in param)
+    if not 0 < short < long:
+        raise ValueError(f'param 须为 (short, long) 且 0 < short < long，收到 {param!r}')
 
     short_avg = df['成交额'].rolling(short, min_periods=short).mean()
     long_avg = df['成交额'].rolling(long, min_periods=long).mean()

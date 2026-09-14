@@ -33,14 +33,18 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
          the path length and purity tends to ±1; after repeated oscillation with a small net gain, the path is
          long and the displacement small, and purity tends to 0. A large value ⇔ rising with few reversals.
     Formula: (收盘价_复权_t / 收盘价_复权_{t−N} − 1) / Σ|Daily Return|
-      Approximately bounded in [−1, 1] under simple returns
-    param: N (lookback window, e.g. 20)
+      The lower bound −1 is strict; the upper bound 1 can be exceeded under simple returns by upside compounding
+      (strictly bounded in [−1, 1] under log returns)
+    param: N (lookback window, positive integer, e.g. 20)
     Sorting: False (larger is better)
-    Boundary: NaN for the first N rows and when the path length is below 1e-10 (no displacement).
+    Boundary: NaN for the first N rows and when the path length is below 1e-10 (no displacement). Suspension
+         days are filled by the host with zero volume, amount and return, and count toward the window.
     Selection Case: ('z_TrendPurity_en', False, 20, 1)
     """
     col_name = kwargs['col_name']
     n = int(param)
+    if n <= 0:
+        raise ValueError(f'param must be a positive integer window, got {param!r}')
 
     price = df['收盘价_复权']
     net_return = price / price.shift(n) - 1

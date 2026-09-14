@@ -33,7 +33,10 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     param: None (pass '')
     Sorting: Not applicable (filter factor)
     Boundary: NaN when no dividend record exists; 270 trading days after the latest record date with no new
-         record, the host sets all dividend fields to NaN.
+         record, the host sets all dividend fields to NaN. The host's data_bridge accumulates in file order, not
+         by record date: when a special or interim dividend puts report-period order at odds with record-date
+         order, the span between two adjacent record dates absorbs a record not yet registered — a host-side
+         limitation.
     Selection Case: None
     Filter Case:    ('z_ConsecutiveDividendYears_en', '', 'val:>=3', False)
     """

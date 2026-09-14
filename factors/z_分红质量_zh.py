@@ -29,15 +29,18 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     公式：均值 × 均值 / (均值 + k × 标准差)
       均值 = 分红率_登记日_近年均值，标准差 = 分红率_登记日_近年标准差
       （框架 data_bridge 以报告期回溯三年内的登记日记录计算）
-    param: k（波动惩罚系数，默认 1；0.5 宽松，2 严格）
+    param: k（波动惩罚系数，非负，默认 1；0.5 宽松，2 严格）
     排序：False（值越大越优）
     边界：均值或标准差缺失时为 NaN——三年内仅一条分红记录时标准差缺失，稳定性不可判定，不以 0 代之；
-         分母为 0 时为 NaN。
+         分母为 0 时为 NaN。框架 data_bridge 按报告期开窗，不按登记日截断：特别分红、中期分红使报告期与登记日
+         排序冲突时，相邻两个登记日之间会提前吸收尚未登记的记录，属框架侧限制。
     选股因子案例：('z_分红质量_zh', False, 1, 1)
     过滤因子案例：('z_分红质量_zh', 1, 'pct:<=0.5', False)
     """
     col_name = kwargs['col_name']
     k = float(param) if param not in (None, '') else 1.0
+    if k < 0:
+        raise ValueError(f'param 须为非负的波动惩罚系数，收到 {param!r}')
 
     mean = df['分红率_登记日_近年均值']
     std = df['分红率_登记日_近年标准差']

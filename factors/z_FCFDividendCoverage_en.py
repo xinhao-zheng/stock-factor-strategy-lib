@@ -29,14 +29,14 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     Principle: > 1, free cash flow covers the dividend; < 1, the dividend exceeds free cash flow and the gap is
          paid from reserves or borrowing; ≤ 0, free cash flow is negative and the dividend rests entirely on
          reserves or borrowing. The multiple answers "can it be sustained", not "how much is paid" — a filter
-         threshold.
+         threshold, or a verifying auxiliary ranking factor.
     Formula: FCF_TTM / Total Dividend TTM
       FCF_TTM = Operating Cash Flow TTM − CapEx TTM
       Total Dividend TTM = Dividend per Share (TTM) × Total Shares, Total Shares = Market Cap / Close
     param: None (pass '')
-    Sorting: Not applicable (filter factor)
+    Sorting: False (larger is better)
     Boundary: NaN when any input is missing, Close ≤ 0, or the TTM dividend is 0.
-    Selection Case: None
+    Selection Case: ('z_FCFDividendCoverage_en', False, '', 1)
     Filter Case:    ('z_FCFDividendCoverage_en', '', 'val:>=1', False)
     """
     col_name = kwargs['col_name']

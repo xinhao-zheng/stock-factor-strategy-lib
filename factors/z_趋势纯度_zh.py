@@ -30,14 +30,17 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
     原理：路径长度 = 日收益绝对值之和。价格单向运行时净收益接近路径长度，纯度趋近 ±1；反复震荡后微涨，路径长
          而位移小，纯度趋近 0。因子值大 ⇔ 上涨且路径少折返。
     公式：(收盘价_复权_t / 收盘价_复权_{t−N} − 1) / Σ|日收益|
-      简单收益下近似有界于 [−1, 1]
-    param: N（回看窗口，如 20）
+      下界 −1 严格成立；上界 1 在简单收益下可被上行复利突破（对数收益下严格有界于 [−1, 1]）
+    param: N（回看窗口，正整数，如 20）
     排序：False（值越大越优）
-    边界：前 N 行、路径长度低于 1e-10（视为无位移）时为 NaN。
+    边界：前 N 行、路径长度低于 1e-10（视为无位移）时为 NaN。停牌日由框架补为成交量、成交额、涨跌幅为 0 的行，
+         计入窗口。
     选股因子案例：('z_趋势纯度_zh', False, 20, 1)
     """
     col_name = kwargs['col_name']
     n = int(param)
+    if n <= 0:
+        raise ValueError(f'param 须为正整数窗口，收到 {param!r}')
 
     price = df['收盘价_复权']
     net_return = price / price.shift(n) - 1

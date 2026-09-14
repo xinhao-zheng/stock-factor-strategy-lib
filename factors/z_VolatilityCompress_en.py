@@ -33,13 +33,16 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
          phase; Ratio < 1, recent volatility has contracted and the stock is still consolidating. A large value
          ⇔ volatility is expanding.
     Formula: std(Return, short) / std(Return, long)
-    param: (short, long), e.g. (10, 60)
+    param: (short, long), integers with 2 ≤ short < long, e.g. (10, 60)
     Sorting: False (larger is better)
     Boundary: NaN for the first long − 1 rows and when long-window volatility is below 1e-10 (no volatility).
+         Suspension days are filled by the host with zero volume, amount and return, and count toward the window.
     Selection Case: ('z_VolatilityCompress_en', False, (10, 60), 1)
     """
     col_name = kwargs['col_name']
     short, long = (int(x) for x in param)
+    if not 1 < short < long:
+        raise ValueError(f'param must be (short, long) with 2 ≤ short < long, got {param!r}')
 
     short_vol = df['涨跌幅'].rolling(short, min_periods=short).std()
     long_vol = df['涨跌幅'].rolling(long, min_periods=long).std()

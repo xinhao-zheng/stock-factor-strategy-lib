@@ -52,9 +52,15 @@ STG_INTRO = {
         ('z_DividendQuality_en', 1, 'pct:<=0.5', False)          ⑥ dividend high and stable, top half of the market
         ('一级行业过滤', ['银行', '非银金融', '房地产'], 'val:==0', False)   optional, off by default
 
-    Known limit: bank and insurer statement formats carry no borrowing or cash items, so for them
+    Known limits: bank and insurer statement formats carry no borrowing or cash items, so for them
     z_EarningsYieldEV_en holds only market cap and the items they do list, not comparable with non-financials —
-    keeping banks means accepting that basis; for a strict EV basis, enable the 一级行业过滤 above.
+    keeping banks means accepting that basis; for a strict EV basis, enable the 一级行业过滤 above. Ranks use
+    method='min', so stocks tied on the composite enter the quota and select_num together and the holding count
+    can exceed the configured value — the same rule as the host's select_by_factor. Industry neutralization takes
+    '综合' as the base industry and raises when the panel lacks it, which can occur in short backtests or under
+    tight filters. z_ConsecutiveDividendYears_en and z_DividendQuality_en pass through the host's dividend bridge,
+    which windows by report period rather than record date — when a special or interim dividend puts the two
+    orders at odds, a record not yet registered is absorbed early (see both factors' boundary sections).
 
     Use Case-1: FCF-verified high dividend, monthly; Use Case-2: industry quota [3, 3, 2, 2] with industry
     neutralization; Use Case-3: core factor back to z_DividendValue_en, verification factor z_FCFDividendCoverage_en.
@@ -152,6 +158,12 @@ def calc_select_factor(df, strategy: StrategyConfig) -> pd.DataFrame:
     # Core factor: neutralize by industry on demand, then rank within each trade date by its ascending flag
     core_col = core.col_name
     if neutralized:
+        # factor_neutralization drops the '综合' dummy as the base industry and raises KeyError when the panel
+        # lacks it; fail first with a readable message
+        if not ((df[ind.col_name] == '综合') & df[core_col].notna()).any():
+            raise ValueError(
+                "neutralization uses '综合' as the base industry; the panel has no valid core value for it"
+            )
         df = factor_neutralization(df, factor=core_col, neutralize_list=[], industry=ind.col_name)
         core_col = f'{core_col}_中性'
     by_date = df.groupby('交易日期')

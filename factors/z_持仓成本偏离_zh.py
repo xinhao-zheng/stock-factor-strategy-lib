@@ -28,16 +28,20 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
          现价低于成本，持仓者浮亏，上方存在解套抛压。因子值大 ⇔ 现价在成本线上方更远。
     公式：(收盘价 − VWAP_N) / VWAP_N
       VWAP_N = sum(成交额, N) / sum(成交量, N)
-    param: N（回看窗口，如 20）
+    param: N（回看窗口，正整数，如 20）
     排序：False（值越大越优）
-    边界：前 N − 1 行、窗口内成交量之和为 0 时为 NaN。价格与成交量均为未复权口径：窗口跨越除权除息日时，
-         VWAP 与现价的基准不一致，偏离中含除权跳空。
+    边界：前 N − 1 行、窗口内成交量之和或成交额之和为 0 时为 NaN。停牌日由框架补为成交量、成交额、涨跌幅为 0
+         的行，计入窗口。价格与成交量均为未复权口径：窗口跨越除权除息日时，VWAP 与现价的基准不一致，偏离中含
+         除权跳空。
     选股因子案例：('z_持仓成本偏离_zh', False, 20, 1)
     """
     col_name = kwargs['col_name']
     n = int(param)
+    if n <= 0:
+        raise ValueError(f'param 须为正整数窗口，收到 {param!r}')
 
+    amount_sum = df['成交额'].rolling(n, min_periods=n).sum()
     volume_sum = df['成交量'].rolling(n, min_periods=n).sum()
-    vwap = df['成交额'].rolling(n, min_periods=n).sum() / volume_sum.where(volume_sum > 0)
+    vwap = amount_sum.where(amount_sum > 0) / volume_sum.where(volume_sum > 0)
 
     return pd.DataFrame({col_name: (df['收盘价'] - vwap) / vwap}, index=df.index)

@@ -30,13 +30,16 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
          when the mean is positive and volatility is high, and turns more negative with volatility when the
          mean is negative. A large value ⇔ rising with expanding volatility — trend and activity at once.
     Formula: mean(Return, N) × std(Return, N)
-    param: N (lookback window, e.g. 20)
+    param: N (lookback window, integer ≥ 2, e.g. 20)
     Sorting: False (larger is better)
-    Boundary: NaN for the first N − 1 rows.
+    Boundary: NaN for the first N − 1 rows. Suspension days are filled by the host with zero volume, amount and
+         return, and count toward the window.
     Selection Case: ('z_MomentumVolatility_en', False, 20, 1)
     """
     col_name = kwargs['col_name']
     n = int(param)
+    if n < 2:
+        raise ValueError(f'param must be an integer window of at least 2, got {param!r}')
 
     window = df['涨跌幅'].rolling(n, min_periods=n)
 

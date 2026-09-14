@@ -31,17 +31,21 @@ def add_factor(df: pd.DataFrame, param=None, **kwargs) -> pd.DataFrame:
          loss, break-even selling overhead. A large value ⇔ price further above the cost line.
     Formula: (Close − VWAP_N) / VWAP_N
       VWAP_N = sum(Amount, N) / sum(Volume, N)
-    param: N (lookback window, e.g. 20)
+    param: N (lookback window, positive integer, e.g. 20)
     Sorting: False (larger is better)
-    Boundary: NaN for the first N − 1 rows and when the window's volume sum is 0. Price and volume are
-         unadjusted: when the window spans an ex-dividend or ex-rights date, VWAP and the close rest on
-         different bases, and the bias carries the ex-date gap.
+    Boundary: NaN for the first N − 1 rows and when the window's volume sum or amount sum is 0. Suspension days
+         are filled by the host with zero volume, amount and return, and count toward the window. Price and
+         volume are unadjusted: when the window spans an ex-dividend or ex-rights date, VWAP and the close rest
+         on different bases, and the bias carries the ex-date gap.
     Selection Case: ('z_CostBias_en', False, 20, 1)
     """
     col_name = kwargs['col_name']
     n = int(param)
+    if n <= 0:
+        raise ValueError(f'param must be a positive integer window, got {param!r}')
 
+    amount_sum = df['成交额'].rolling(n, min_periods=n).sum()
     volume_sum = df['成交量'].rolling(n, min_periods=n).sum()
-    vwap = df['成交额'].rolling(n, min_periods=n).sum() / volume_sum.where(volume_sum > 0)
+    vwap = amount_sum.where(amount_sum > 0) / volume_sum.where(volume_sum > 0)
 
     return pd.DataFrame({col_name: (df['收盘价'] - vwap) / vwap}, index=df.index)
