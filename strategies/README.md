@@ -42,3 +42,6 @@ def calc_select_factor(df: pd.DataFrame, strategy) -> pd.DataFrame:
 
 A strategy composes scores the framework has already computed; it does not recompute raw signals. Each file's `STG_INTRO` is its specification.
 策略组合的是框架已算好的分值，不重新计算原始信号。每个文件的 `STG_INTRO` 即其规格。
+
+Attention Momentum is an exception to the conventions above: it computes full-market F/W scores under its own `STG_INTRO`, with a host-supplied data adapter excluded from this library.
+注意力动量是上述约定的例外：按自身 `STG_INTRO` 从全市场计算 F/W 分数，数据接口由宿主提供，本库不收录。
