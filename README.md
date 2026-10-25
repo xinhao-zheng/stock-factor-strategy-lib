@@ -11,6 +11,7 @@ Plug-in factors and strategies for a stock-selection framework: a factor measure
 .
 ├── factors/          # add_factor(df, param, **kwargs) → one factor column · 一列因子值
 ├── strategies/       # calc_select_factor(df, strategy) + STG_INTRO → holdings · 持仓
+├── crypto/factors/   # signal_multi_params(df, param_list) → one Series per param · 每个参数一列
 ├── requirements.txt  # pandas
 └── LICENSE
 ```
